@@ -1,25 +1,201 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Peer Assessment Project 1 for Reproducible Data 011"
+author: "C R Hume"
+date: "Friday, February 13, 2015"
+output: html_document
 ---
+```{r timestamp, echo=FALSE}
+dt <- format(Sys.time(), "%a %b %Y %d %X")
+```
+last knit on `r dt`.
+
+#Statement of Purpose
+
+This document has been written to comply with the requirements for the first peer
+assessed project for the Reproducible Data course.  The sections below will 
+outline the intention, methodology and results for the assignment.
+
+##Loading and preprocessing the data
+
+In this section, I am going to load and preprocess the data from my working 
+diretory.  For this to work, the dataset in question must be visible directly
+in my working directory, which I have set up ahead of time.  For the purpose of
+the github repo, if cloned, this should fall directly into this state.
+
+```{r preprocessing, echo=TRUE}
+# Load required library
+require("dplyr")
+library("dplyr")
+# Load data
+rawdf <- tbl_df(read.csv("activity.csv"))
+
+# store second file with no missing data
+rawdf_nomiss_bydt <- 
+    filter(rawdf,!is.na(steps)) %>%
+    group_by(date) # Looking ahead we want this information grouped by date
+
+rawdf_nomiss_byint <-
+    filter(rawdf, !is.na(steps)) %>%
+    group_by(interval) # Looking ahead we want this information grouped by interval
+```
+
+##What is the mean total number of steps taken per day?
+
+We are asked to answer the following key questions regarding the dataframe which
+has been purged of missing data:
+
+1. Calculate the total number of steps taken per day
+2. Make a histogram of the total number of steps taken each day
+3. Calculate and report the mean and median of the total number of steps taken per day
 
 
-## Loading and preprocessing the data
+###Answer to question 1: 
+We are asked to produce a table with the total steps taken 
+each day.  This table should result from the following code:
+```{r question1_bydate}
+sum_nomiss_tots <- summarise(rawdf_nomiss_bydt,total.steps=sum(steps))
+sum_nomiss_tots
+```
+
+###Answer to question 2: 
+Make a histogram of the previous data.
+I decided that I liked the breaks on the thousands, for interest, I also added
+color and a best fit normal curve through the same data.
+
+```{r question23_bydate}
+h <- hist(sum_nomiss_tots$total.steps,breaks=1000*(0:25), col="red",xlab="Steps per day", main="Number of Steps per day with fit normal curve")
+stp_mean <- mean(sum_nomiss_tots$total.steps)
+stp_medn <- median(sum_nomiss_tots$total.steps)
+stp_sd <- sd(sum_nomiss_tots$total.steps)
+xfit <- seq(min(sum_nomiss_tots$total.steps),max(sum_nomiss_tots$total.steps),length=40)
+yfit <- dnorm(xfit,mean=stp_mean,sd=stp_sd)
+yfit <- yfit*diff(h$mids[1:2])*length(sum_nomiss_tots$total.steps)
+lines(xfit,yfit,col="blue",lwd=2)
+
+abline(v=stp_medn, col="green", lty=4,lwd=2) #median value
+abline(v=stp_mean,col="blue", lty=3) #mean value
+
+legend(13000,10,legend=c(sprintf("median = %d",stp_medn),sprintf("mean = %5.1f",stp_mean)),col=c("green","blue"),lty=c(4,3))
+```
+
+###Answer to question 3:
+In the above plot, the mean value is `r sprintf("%5.1f",stp_mean)` (with sd `r sprintf("%4.1f",stp_sd)`) and the median value is `r stp_medn`.
+
+##What is the average daily activity pattern?
+
+We are asked to complete two activities/questions:
+1. Make a time series plot (i.e. type="l") of the 5 minute interval and avg number of steps taken across all days.
+2. Which 5-minute interval, on average across days in this dataset, contains the maximum number of steps?
+
+###Completion of Activity 1
+The following time series graph illustrates the daily activity on average (ignoring missing data).  
+The greatest difficulty I encountered with this section had to do with formatting the 
+times which were imported as a numeric counter of the form 'hhmm', but since it was
+numeric, leading 0s had been dropped etc.  As you can see I used some conversions and
+sprintf to adjust this to have both a direct count of the intervals of the day as well
+as a time for each.  Thsi allowed me to have my x axis not showing areas which were
+not representative of the scale (such as the invisible gap between 1155 and 1200).
+
+```{r question1_byint}
+require("dplyr")
+require("lubridate")
+library(dplyr)
+library(lubridate)
+sum_nomiss_ints <- summarise(rawdf_nomiss_byint,avg.steps=mean(steps))
+summary(sum_nomiss_ints)
+sum_nomiss_ints<-mutate(sum_nomiss_ints,time=format(as.POSIXct(sprintf("%04d",interval),format="%H%M"),"%H:%M"))
+sum_nomiss_ints<-mutate(sum_nomiss_ints,interval_no=sprintf("%04d",interval))
+sum_nomiss_ints<-mutate(sum_nomiss_ints,interval_no=12*as.numeric(substr(interval_no,0,2))+as.numeric(substr(interval_no,3,4))/5)
+plot(sum_nomiss_ints$interval_no,sum_nomiss_ints$avg.steps,type="l",main="Average activity throughout the day",xlab="5 minute intervals",ylab="average number of steps")
+mx_stp_ind <- which.max(sum_nomiss_ints$avg.steps)
+mx_stps <- sum_nomiss_ints$avg.steps[mx_stp_ind]
+mx_int <- sum_nomiss_ints$interval_no[mx_stp_ind]
+mx_tim <- sum_nomiss_ints$time[mx_stp_ind]
+```
+
+###Answer to Question 2
+
+The maximum average number of steps (`r sprintf("%3.3f",mx_stps)` steps) occurred at `r mx_tim`, `r mx_int` 5 minute intervals into the day.
+
+##Imputing missing values
+
+For this section we are going to impute the missing values rather than eliminate them.
+
+1. Calculate and report the total number of missing values in the dataset
+2. Devise a strategy for filling in the missing values in the dataset
+3. Create a new dataset that is equal to the original dataset but with the missing data filled in
+4. Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day.  Do these values differ from the estimates from the first part of the assignment?  What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+###Answer to Question 1
+We begin by calculating the number of missing values in the original dataset
+```{r impute_q1}
+tot_na <- sum(is.na(rawdf$steps))
+```
+There are `r tot_na` missing data points in the original dataset.
+             
+###Answer to Question 2
+I am not an expert in missing data, however, I do know that a variety of possibilities exist.  Which method you use depends in some part on what statistics you are hoping to preserve.  For example, direct imputation of values is a horrible method when your statistic is totals, but it works out fairly well when you're observing averages.  You can essentially assume a "statistically neutral" value in order to prevent skewing your statistics too much.
+
+As one very naiive approach (which I won't do here because it would be simpler than I believe this exercise is calling for) we could naiively impute the value "0" for any missing values.  This would horribly skew the averages found in the second section (we would be increasing the number of observations, but not the number of steps in our by interval analysis), but will leave the statistics we found in the first section exactly the same (totals for the day would still be identical).  Since the remaining questions call for some kind of comparison of what the imputation does to the first section, this method would basically negate any work on this part, which seems contrary to the purpose of the excercise.  
+
+Instead, I will naiively try to preserve the second section by imputing the mean number of steps per 5 minute interval into the NAs.  This will leave the second section of analysis un-touched, but will skew the first section of analysis, thus giving me interesting answers to the questions being asked.
 
 
+###Results of Exercise 3
+```{r impute_q3}
+# We merge our raw dataset together with our computed averages for 5 minute ints
+impute_vals <- select(sum_nomiss_ints,interval,avg.steps)
+impd_df <- merge(rawdf,impute_vals)
+isna <- is.na(impd_df$steps)
+impd_df$steps[isna] <- impd_df$avg.steps[isna]
+impd_df <- select(impd_df,steps,date,interval)
+summary(impd_df)
+```
 
-## What is mean total number of steps taken per day?
+###Results of Exercise 4
+
+```{r impute_q4}
+impd_df <- group_by(impd_df,date)
+impd_tots <- summarise(impd_df,total.steps=sum(steps))
+
+h2 <- hist(impd_tots$total.steps,breaks=1000*(0:25), col="red",xlab="Steps per day", main="Number of Steps per day with fit normal curve (IMPUTED VALS)")
+stp_mean2 <- mean(impd_tots$total.steps)
+stp_medn2 <- median(impd_tots$total.steps)
+stp_sd2 <- sd(impd_tots$total.steps)
+xfit2 <- seq(min(impd_tots$total.steps),max(impd_tots$total.steps),length=40)
+yfit2 <- dnorm(xfit2,mean=stp_mean2,sd=stp_sd2)
+yfit2 <- yfit2*diff(h2$mids[1:2])*length(impd_tots$total.steps)
+lines(xfit2,yfit2,col="blue",lwd=2)
+
+abline(v=stp_medn2, col="green", lty=4,lwd=2) #median value
+abline(v=stp_mean2,col="blue", lty=3) #mean value
+
+legend(13000,13,legend=c(sprintf("median = %5.1f",stp_medn2),sprintf("mean = %5.1f",stp_mean2)),col=c("green","blue"),lty=c(4,3))
+```
+
+We can observe that the estimated mean/median `r sprintf("%5.1f",stp_mean)`/`r stp_medn` (sd = `r sprintf("%3.1f",stp_sd)`) differs slightly from those calculated after imputing `r sprintf("%5.1f",stp_mean2)`/`r sprintf("%5.1f",stp_medn2)` (sd = `r sprintf("%3.1f",stp_sd2)`).  The most obvious difference in the calculated number of steps is apparent by the increased number of values in the 10,000-11,000 range due to the reduction in the standard deviation of total steps (overall totals were increased, but mostly lower totals were raised closer to the mean/median values).
 
 
+##Are there differences in activity patterns between weekdays and weekends?
+For these questions use this recent dataset with imputed values
 
-## What is the average daily activity pattern?
+1. Create a new factor variable in the dataset with two levels - "weekday" and "weekend" indicating which it is
+2. Make a panel plot containing a time series plot of the 5 minute intervals across thse factors
 
+###Work done on Exercise 1 and 2
+```{r last_question1}
+library(lubridate)
+library(ggplot2)
+require("reshape")
+library(reshape)
+impd_df <- mutate(impd_df,weekday=weekdays(ymd(date),abbreviate=TRUE))
+impd_df$weekday[impd_df$weekday=="sun" | impd_df$weekday=="Sat"] <- "Weekend"
+impd_df$weekday[impd_df$weekday!="Weekend"] <- "Weekday"
+impd_df <- group_by(impd_df,weekday)
+impd_df <- mutate(impd_df,interval_no=sprintf("%04d",interval))
+impd_df <- mutate(impd_df,interval_no=12*as.numeric(substr(interval_no,0,2))+as.numeric(substr(interval_no,3,4))/5)
+impd_df <- group_by(impd_df,interval_no,add=TRUE)
+sum_tot <- summarise(impd_df,avg.steps=mean(steps))
+ggplot(sum_tot,aes(interval_no,avg.steps))+geom_line()+facet_grid(weekday ~ .)+ylab("Average No. of Steps")+xlab("5 minute interval number")
 
-
-## Imputing missing values
-
-
-
-## Are there differences in activity patterns between weekdays and weekends?
+```
